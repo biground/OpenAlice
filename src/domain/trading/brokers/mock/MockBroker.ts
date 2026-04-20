@@ -55,6 +55,7 @@ export interface MockBrokerOptions {
   cash?: number
   baseCurrency?: string
   accountInfo?: Partial<AccountInfo>
+  initialPositions?: Array<{ symbol: string; qty: number; avgCost: number }>
 }
 
 // ==================== Defaults ====================
@@ -132,16 +133,22 @@ export class MockBroker implements IBroker {
   static configSchema = z.object({
     cash: z.number().positive().default(100_000),
     baseCurrency: z.string().default('USD'),
+    initialPositions: z.array(z.object({
+      symbol: z.string(),
+      qty: z.number().positive(),
+      avgCost: z.number().positive(),
+    })).optional(),
   })
 
   static configFields: import('../types.js').BrokerConfigField[] = [
     { name: 'cash', type: 'number', label: 'Initial Cash', default: 100000, description: 'Starting cash balance for the simulated account.' },
     { name: 'baseCurrency', type: 'text', label: 'Base Currency', default: 'USD', description: 'Base currency for the simulated account (e.g. USD, CNY, HKD).' },
+    { name: 'initialPositions', type: 'text', label: 'Initial Positions', description: 'Pre-loaded positions restored on startup. JSON array of {symbol, qty, avgCost}.' },
   ]
 
   static fromConfig(config: { id: string; label?: string; brokerConfig: Record<string, unknown> }): MockBroker {
     const bc = MockBroker.configSchema.parse(config.brokerConfig)
-    return new MockBroker({ id: config.id, label: config.label, cash: bc.cash, baseCurrency: bc.baseCurrency })
+    return new MockBroker({ id: config.id, label: config.label, cash: bc.cash, baseCurrency: bc.baseCurrency, initialPositions: bc.initialPositions })
   }
 
   // ---- Instance ----
@@ -165,6 +172,17 @@ export class MockBroker implements IBroker {
     this.label = options.label ?? 'Mock Paper Account'
     this._baseCurrency = options.baseCurrency ?? 'USD'
     this._cash = new Decimal(options.cash ?? 100_000)
+    if (options.initialPositions) {
+      for (const p of options.initialPositions) {
+        const contract = makeContract({ symbol: p.symbol, aliceId: `${this.id}|${p.symbol}` })
+        this._positions.set(contract.aliceId!, {
+          contract,
+          side: 'long',
+          quantity: new Decimal(p.qty),
+          avgCost: new Decimal(p.avgCost),
+        })
+      }
+    }
     if (options.accountInfo) {
       this._accountOverride = {
         baseCurrency: this._baseCurrency, netLiquidation: '0', totalCashValue: '0', unrealizedPnL: '0', realizedPnL: '0',
