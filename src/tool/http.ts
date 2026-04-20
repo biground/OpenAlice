@@ -16,6 +16,38 @@ import { z } from 'zod'
 const MAX_RESPONSE_BYTES = 1_048_576 // 1 MB
 const DEFAULT_TIMEOUT_MS = 30_000
 
+// 进程级 cookie 存储（按 hostname 分组），支持多步认证流程
+const cookieStore = new Map<string, Map<string, string>>()
+
+function extractCookies(hostname: string, response: Response): void {
+  const setCookies = response.headers.getSetCookie?.() ?? []
+  if (setCookies.length === 0) return
+
+  let hostCookies = cookieStore.get(hostname)
+  if (!hostCookies) {
+    hostCookies = new Map()
+    cookieStore.set(hostname, hostCookies)
+  }
+
+  for (const cookie of setCookies) {
+    const [nameValue] = cookie.split(';')
+    const eqIdx = nameValue.indexOf('=')
+    if (eqIdx > 0) {
+      const name = nameValue.slice(0, eqIdx).trim()
+      const value = nameValue.slice(eqIdx + 1).trim()
+      hostCookies.set(name, value)
+    }
+  }
+}
+
+function getCookieHeader(hostname: string): string | undefined {
+  const hostCookies = cookieStore.get(hostname)
+  if (!hostCookies || hostCookies.size === 0) return undefined
+  return Array.from(hostCookies.entries())
+    .map(([name, value]) => `${name}=${value}`)
+    .join('; ')
+}
+
 /** 允许的 localhost 主机名精确集合（防 SSRF） */
 const ALLOWED_HOSTS = new Set([
   'localhost',
@@ -111,13 +143,23 @@ External URLs are blocked for security. Response body is capped at 1 MB.`,
         const timeoutMs = timeout ?? DEFAULT_TIMEOUT_MS
         const timer = setTimeout(() => controller.abort(), timeoutMs)
 
+        // 注入已存储的 cookie
+        const mergedHeaders: Record<string, string> = { ...headers }
+        const cookieHeader = getCookieHeader(parsed.hostname)
+        if (cookieHeader && !mergedHeaders['Cookie']) {
+          mergedHeaders['Cookie'] = cookieHeader
+        }
+
         try {
           const response = await fetch(parsed.toString(), {
             method: method ?? 'GET',
-            headers: headers as Record<string, string> | undefined,
+            headers: mergedHeaders,
             body,
             signal: controller.signal,
           })
+
+          // 提取并存储 Set-Cookie
+          extractCookies(parsed.hostname, response)
 
           const responseBody = await readBodyLimited(response)
           const responseHeaders = sanitizeHeaders(response.headers)
@@ -163,6 +205,12 @@ External URLs are blocked for security. Response body is capped at 1 MB.`,
           ...headers,
         }
 
+        // 注入已存储的 cookie
+        const cookieHeader = getCookieHeader(parsed.hostname)
+        if (cookieHeader && !mergedHeaders['Cookie']) {
+          mergedHeaders['Cookie'] = cookieHeader
+        }
+
         try {
           const response = await fetch(parsed.toString(), {
             method: method ?? 'GET',
@@ -170,6 +218,9 @@ External URLs are blocked for security. Response body is capped at 1 MB.`,
             body: body ? JSON.stringify(body) : undefined,
             signal: controller.signal,
           })
+
+          // 提取并存储 Set-Cookie
+          extractCookies(parsed.hostname, response)
 
           const rawBody = await readBodyLimited(response)
 
