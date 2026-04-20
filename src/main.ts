@@ -47,6 +47,7 @@ import { createMetricsListener } from './task/metrics/index.js'
 import { createTaskRouter } from './task/task-router/index.js'
 import { NewsCollectorStore, NewsCollector } from './domain/news/index.js'
 import { createNewsArchiveTools } from './tool/news.js'
+import { createHttpTools } from './tool/http.js'
 
 // ==================== Persistence paths ====================
 
@@ -235,6 +236,7 @@ async function main() {
     toolCenter.register(createNewsArchiveTools(newsStore), 'news')
   }
   toolCenter.register(createAnalysisTools(equityClient, cryptoClient, currencyClient, commodityClient), 'analysis')
+  toolCenter.register(createHttpTools(), 'http')
 
   console.log(`tool-center: ${toolCenter.list().length} tools registered`)
 

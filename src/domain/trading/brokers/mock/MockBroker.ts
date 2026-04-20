@@ -53,6 +53,7 @@ export interface MockBrokerOptions {
   id?: string
   label?: string
   cash?: number
+  baseCurrency?: string
   accountInfo?: Partial<AccountInfo>
 }
 
@@ -128,17 +129,26 @@ export function makePlaceOrderResult(overrides: Partial<PlaceOrderResult> = {}):
 export class MockBroker implements IBroker {
   // ---- Self-registration ----
 
-  static configSchema = z.object({})
-  static configFields: import('../types.js').BrokerConfigField[] = []
+  static configSchema = z.object({
+    cash: z.number().positive().default(100_000),
+    baseCurrency: z.string().default('USD'),
+  })
+
+  static configFields: import('../types.js').BrokerConfigField[] = [
+    { name: 'cash', type: 'number', label: 'Initial Cash', default: 100000, description: 'Starting cash balance for the simulated account.' },
+    { name: 'baseCurrency', type: 'text', label: 'Base Currency', default: 'USD', description: 'Base currency for the simulated account (e.g. USD, CNY, HKD).' },
+  ]
 
   static fromConfig(config: { id: string; label?: string; brokerConfig: Record<string, unknown> }): MockBroker {
-    return new MockBroker({ id: config.id, label: config.label })
+    const bc = MockBroker.configSchema.parse(config.brokerConfig)
+    return new MockBroker({ id: config.id, label: config.label, cash: bc.cash, baseCurrency: bc.baseCurrency })
   }
 
   // ---- Instance ----
 
   readonly id: string
   readonly label: string
+  private _baseCurrency: string
 
   private _positions = new Map<string, InternalPosition>()
   private _orders = new Map<string, InternalOrder>()
@@ -153,10 +163,11 @@ export class MockBroker implements IBroker {
   constructor(options: MockBrokerOptions = {}) {
     this.id = options.id ?? 'mock-paper'
     this.label = options.label ?? 'Mock Paper Account'
+    this._baseCurrency = options.baseCurrency ?? 'USD'
     this._cash = new Decimal(options.cash ?? 100_000)
     if (options.accountInfo) {
       this._accountOverride = {
-        baseCurrency: 'USD', netLiquidation: '0', totalCashValue: '0', unrealizedPnL: '0', realizedPnL: '0',
+        baseCurrency: this._baseCurrency, netLiquidation: '0', totalCashValue: '0', unrealizedPnL: '0', realizedPnL: '0',
         ...options.accountInfo,
       }
     }
@@ -342,7 +353,7 @@ export class MockBroker implements IBroker {
     }
 
     return {
-      baseCurrency: 'USD',
+      baseCurrency: this._baseCurrency,
       netLiquidation: this._cash.plus(marketValueAcc).toString(),
       totalCashValue: this._cash.toString(),
       unrealizedPnL: unrealizedPnL.toString(),
