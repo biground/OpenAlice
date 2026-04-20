@@ -234,3 +234,63 @@ describe('createTradingTools — getOrders summarization', () => {
     expect(result['mock-paper|ETH'].orders).toHaveLength(1)
   })
 })
+
+// ==================== structuredClone safety ====================
+
+describe('createTradingTools — structuredClone safety', () => {
+  it('tool results containing Decimal objects can be structuredCloned', async () => {
+    const broker = new MockBroker({ id: 'mock-paper' })
+    broker.setQuote('AAPL', 150)
+    const mgr = makeManager(broker)
+    const uta = mgr.resolve('mock-paper')[0]
+
+    // stagePlaceOrder returns AddResult containing Operation with Order (has Decimal fields)
+    const tools = createTradingTools(mgr)
+    const result = await (tools.placeOrder.execute as Function)({
+      source: 'mock-paper',
+      aliceId: 'mock-paper|AAPL',
+      action: 'BUY',
+      orderType: 'MKT',
+      totalQuantity: 10,
+    })
+
+    // Must not throw DataCloneError
+    expect(() => structuredClone(result)).not.toThrow()
+  })
+
+  it('getPortfolio results can be structuredCloned', async () => {
+    const broker = new MockBroker({ id: 'mock-paper' })
+    broker.setQuote('AAPL', 150)
+    const mgr = makeManager(broker)
+    const uta = mgr.resolve('mock-paper')[0]
+
+    // Place and execute an order to create a position
+    uta.stagePlaceOrder({ aliceId: 'mock-paper|AAPL', action: 'BUY', orderType: 'MKT', totalQuantity: 10 })
+    uta.commit('buy aapl')
+    await uta.push()
+
+    const tools = createTradingTools(mgr)
+    const result = await (tools.getPortfolio.execute as Function)({})
+
+    expect(() => structuredClone(result)).not.toThrow()
+  })
+
+  it('tradingShow results can be structuredCloned', async () => {
+    const broker = new MockBroker({ id: 'mock-paper' })
+    broker.setQuote('AAPL', 150)
+    const mgr = makeManager(broker)
+    const uta = mgr.resolve('mock-paper')[0]
+
+    uta.stagePlaceOrder({ aliceId: 'mock-paper|AAPL', action: 'BUY', orderType: 'MKT', totalQuantity: 5 })
+    const commitResult = uta.commit('buy')
+    await uta.push()
+
+    const tools = createTradingTools(mgr)
+    const log = await (tools.tradingLog.execute as Function)({})
+    if (Array.isArray(log) && log.length > 0) {
+      const hash = log[0].hash
+      const showResult = await (tools.tradingShow.execute as Function)({ hash })
+      expect(() => structuredClone(showResult)).not.toThrow()
+    }
+  })
+})

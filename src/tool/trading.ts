@@ -53,6 +53,18 @@ function summarizeOrder(o: OpenOrder, source: string, stringOrderId?: string) {
   }
 }
 
+/** Recursively convert Decimal.js instances to numbers (prevents structuredClone errors in Vercel AI SDK telemetry). */
+function toPlain(obj: unknown): unknown {
+  if (obj instanceof Decimal) return obj.toNumber()
+  if (Array.isArray(obj)) return obj.map(toPlain)
+  if (obj !== null && typeof obj === 'object' && !(obj instanceof Date)) {
+    const result: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(obj)) result[k] = toPlain(v)
+    return result
+  }
+  return obj
+}
+
 const sourceDesc = (required: boolean, extra?: string) => {
   const base = `Account source — matches account id (e.g. "alpaca-paper") or provider (e.g. "alpaca", "ccxt").`
   const req = required
@@ -62,7 +74,7 @@ const sourceDesc = (required: boolean, extra?: string) => {
 }
 
 export function createTradingTools(manager: AccountManager, fxService?: FxService): Record<string, Tool> {
-  return {
+  const tools: Record<string, Tool> = {
     listAccounts: tool({
       description: 'List all registered trading accounts with their id, provider, label, and capabilities.',
       inputSchema: z.object({}),
@@ -470,4 +482,15 @@ Optional: attach takeProfit and/or stopLoss for automatic exit orders.`,
       },
     }),
   }
+
+  // Sanitize all tool results: convert Decimal.js objects to numbers
+  // to prevent DataCloneError when Vercel AI SDK telemetry calls structuredClone
+  for (const t of Object.values(tools)) {
+    const orig = t.execute
+    if (orig) {
+      ;(t as any).execute = async (...args: unknown[]) => toPlain(await (orig as Function)(...args))
+    }
+  }
+
+  return tools
 }

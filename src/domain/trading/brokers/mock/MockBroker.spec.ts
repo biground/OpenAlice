@@ -8,7 +8,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest'
 import Decimal from 'decimal.js'
-import { Contract, Order, OrderState } from '@traderalice/ibkr'
+import { Contract, ContractDescription, Order, OrderState } from '@traderalice/ibkr'
 import { MockBroker, makeContract, makePosition, makeOpenOrder, makePlaceOrderResult } from './index.js'
 import '../../contract-ext.js'
 
@@ -389,6 +389,42 @@ describe('accountInfo constructor option', () => {
     expect(account.totalCashValue).toBe('30000')
     expect(account.unrealizedPnL).toBe('2000')
     expect(account.realizedPnL).toBe('500')
+  })
+})
+
+// ==================== searchContracts ====================
+
+describe('searchContracts', () => {
+  it('returns matching position symbol when pattern matches', async () => {
+    const b = new MockBroker({ initialPositions: [{ symbol: '515080', qty: 100, avgCost: 1.5 }] })
+    const results = await b.searchContracts('515080')
+    expect(results.length).toBeGreaterThanOrEqual(1)
+    expect(results.some(d => d.contract.symbol === '515080')).toBe(true)
+  })
+
+  it('returns partial match from positions', async () => {
+    const b = new MockBroker({ initialPositions: [{ symbol: 'AAPL', qty: 10, avgCost: 150 }] })
+    const results = await b.searchContracts('aap')
+    expect(results.length).toBeGreaterThanOrEqual(1)
+    expect(results[0].contract.symbol).toBe('AAPL')
+  })
+
+  it('generates a generic contract when no position matches', async () => {
+    const results = await broker.searchContracts('516700')
+    expect(results).toHaveLength(1)
+    expect(results[0].contract.symbol).toBe('516700')
+    expect(results[0].contract.secType).toBe('STK')
+  })
+
+  it('uses baseCurrency for generated contract', async () => {
+    const b = new MockBroker({ baseCurrency: 'CNY' })
+    const results = await b.searchContracts('515080')
+    expect(results[0].contract.currency).toBe('CNY')
+  })
+
+  it('records the call', async () => {
+    await broker.searchContracts('AAPL')
+    expect(broker.callCount('searchContracts')).toBe(1)
   })
 })
 

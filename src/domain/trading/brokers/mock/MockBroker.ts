@@ -230,13 +230,35 @@ export class MockBroker implements IBroker {
   async init(): Promise<void> { this._record('init', []); this._checkFail('init') }
   async close(): Promise<void> { this._record('close', []) }
 
-  // ---- Contract search (stub) ----
+  // ---- Contract search ----
 
-  async searchContracts(_pattern: string): Promise<ContractDescription[]> {
-    this._record('searchContracts', [_pattern])
-    const desc = new ContractDescription()
-    desc.contract = makeContract()
-    return [desc]
+  async searchContracts(pattern: string): Promise<ContractDescription[]> {
+    this._record('searchContracts', [pattern])
+    const results: ContractDescription[] = []
+    const normalizedPattern = pattern.toUpperCase()
+
+    // 从已有持仓中匹配
+    for (const pos of this._positions.values()) {
+      const sym = (pos.contract.symbol ?? '').toUpperCase()
+      if (sym.includes(normalizedPattern)) {
+        const desc = new ContractDescription()
+        desc.contract = pos.contract
+        results.push(desc)
+      }
+    }
+
+    // 没有匹配的持仓时，生成一个通用合约
+    if (results.length === 0) {
+      const desc = new ContractDescription()
+      desc.contract = makeContract({
+        symbol: pattern,
+        aliceId: `${this.id}|${pattern}`,
+        currency: this._baseCurrency,
+      })
+      results.push(desc)
+    }
+
+    return results
   }
 
   async getContractDetails(_query: Contract): Promise<ContractDetails | null> {
